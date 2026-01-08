@@ -1,30 +1,35 @@
-# pygame_terminal.py
+# terminal.py — PyBash Pygame terminal
+
 import sys
 import os
 
-BASE_DIR = os.path.dirname(__file__)
-MAIN_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "main"))
-sys.path.append(MAIN_DIR)
+THIS_DIR = os.path.dirname(__file__)
+PROJECT_ROOT = os.path.abspath(os.path.join(THIS_DIR, "..", ".."))
+SRC_DIR = os.path.join(PROJECT_ROOT, "src")
+
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
 
 import pygame
-from main_tty import process_command
-import linvm
-import fileutils
+from pybash.main_tty import process_command
+from pybash import linvm, fileutils
 
 pygame.init()
 
 # ---------------- STATE ----------------
-mode = "shell"  # "shell" or "editor"
-editor_lines = []
-editor_cursor_x = 0
-editor_cursor_y = 0
-editor_filename = None
+mode = "shell"
 
 buffer = [
     "Welcome to PyBash (Pygame Edition)",
     "Type 'help' to get started."
 ]
 current_input = ""
+
+editor_lines = []
+editor_cursor_x = 0
+editor_cursor_y = 0
+editor_filename = None
+editor_real_path = None
 # --------------------------------------
 
 WIDTH, HEIGHT = 900, 600
@@ -52,7 +57,7 @@ def draw():
 
         y = 10
         for line in visible:
-            text = font.render(line, True, FG)
+            text = font.render(str(line), True, FG)
             screen.blit(text, (10, y))
             y += LINE_HEIGHT
 
@@ -68,7 +73,6 @@ def draw():
             screen.blit(text, (10, y))
             y += LINE_HEIGHT
 
-        # Cursor
         if editor_lines:
             cx = 10 + font.size(
                 editor_lines[editor_cursor_y][:editor_cursor_x]
@@ -87,13 +91,18 @@ while True:
 
         # ---------- EDITOR MODE ----------
         if mode == "editor" and event.type == pygame.KEYDOWN:
+            # Exit editor
             if event.key == pygame.K_q and pygame.key.get_mods() & pygame.KMOD_CTRL:
                 mode = "shell"
                 continue
 
+            # Save file (CREATE if missing)
             if event.key == pygame.K_s and pygame.key.get_mods() & pygame.KMOD_CTRL:
-                with open(editor_filename, "w", encoding="utf-8") as f:
+                os.makedirs(os.path.dirname(editor_real_path), exist_ok=True)
+                with open(editor_real_path, "w", encoding="utf-8") as f:
                     f.write("\n".join(editor_lines))
+                buffer.append(f"[saved] {editor_filename}")
+                mode = "shell"
                 continue
 
             if event.key == pygame.K_RETURN:
@@ -126,21 +135,25 @@ while True:
 
                 try:
                     output = process_command(current_input)
+
                     for item in output:
+                        # CONTROL SIGNAL: open editor
                         if isinstance(item, dict) and item.get("action") == "open_editor":
                             editor_filename = item["filename"]
+                            editor_real_path = linvm.resolve_path(editor_filename)
                             mode = "editor"
 
-                            try:
-                                with open(editor_filename, "r", encoding="utf-8") as f:
+                            if os.path.exists(editor_real_path):
+                                with open(editor_real_path, "r", encoding="utf-8") as f:
                                     editor_lines = f.read().splitlines()
-                            except FileNotFoundError:
+                            else:
                                 editor_lines = [""]
 
                             editor_cursor_x = 0
                             editor_cursor_y = 0
+
                         else:
-                            buffer.append(item)
+                            buffer.append(str(item))
 
                 except SystemExit:
                     pygame.quit()
